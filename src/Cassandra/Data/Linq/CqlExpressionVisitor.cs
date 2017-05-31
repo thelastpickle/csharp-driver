@@ -105,6 +105,10 @@ namespace Cassandra.Data.Linq
         private readonly string _keyspaceName;
         private bool _isSelectQuery;
 
+        //Delegate method used on GetFieldValueMethod to encapsulate a reference method
+        //GetValue of RuntimePropertyInfo and FieldInfo
+        private delegate object MemberOrPropertyGetValue(object obj);
+
         public CqlExpressionVisitor(PocoData pocoData, string tableName, string keyspaceName)
         {
             if (tableName == null)
@@ -1118,19 +1122,32 @@ namespace Cassandra.Data.Linq
 
         private static object GetFieldValue(MemberExpression node)
         {
-            var fieldInfo = (FieldInfo)node.Member;
+            MemberOrPropertyGetValue getValueDel;
+            switch (node.Member.MemberType)
+            {
+                case MemberTypes.Field:
+                    var fieldInfo = (FieldInfo)node.Member;
+                    getValueDel = fieldInfo.GetValue;
+                    break;
+                case MemberTypes.Property:
+                    var propertyInfo = (PropertyInfo) node.Member;
+                    getValueDel = propertyInfo.GetValue;
+                    break;
+                default:
+                    throw new NotSupportedException(node.Member.MemberType.ToString());
+            }
             if (node.Expression is MemberExpression)
             {
                 // The field of a field instance
                 var instance = GetFieldValue((MemberExpression)node.Expression);
-                return fieldInfo.GetValue(instance);
+                return getValueDel(instance);
             }
             if (node.Expression == null)
             {
                 // Static field
-                return fieldInfo.GetValue(null);
+                return getValueDel(null);
             }
-            return fieldInfo.GetValue(((ConstantExpression)node.Expression).Value);
+            return getValueDel(((ConstantExpression)node.Expression).Value);
         }
 
         private static object GetPropertyValue(MemberExpression node)
